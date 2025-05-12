@@ -1,12 +1,12 @@
-# filename: app.py
+
 import streamlit as st
 import pandas as pd
 import datetime
 from collections import defaultdict
-import uuid # For unique component IDs
-import random # Added for optional shuffle in placeholder
+import uuid 
+import random 
 
-# --- Helper Functions ---
+# Helper Functions
 
 def time_to_minutes(time_obj):
     """Converts a datetime.time object to minutes since midnight."""
@@ -17,7 +17,6 @@ def time_to_minutes(time_obj):
 def minutes_to_time(total_minutes):
     """Converts total minutes since midnight back to a datetime.time object."""
     hours, minutes = divmod(total_minutes, 60)
-    # Ensure hours and minutes are within valid range for datetime.time
     hours = max(0, min(23, hours))
     minutes = max(0, min(59, minutes))
     return datetime.time(hours, minutes)
@@ -40,11 +39,8 @@ def parse_time_slot(time_slot_str):
         end_minute = end_h * 60 + end_m
         return start_minute, end_minute
     except Exception:
-        return None, None # Handle parsing errors
+        return None, None 
 
-
-# --- Placeholder Scheduling Logic ---
-# !!! IMPORTANT: Replace this with a real implementation using OR-Tools or similar !!!
 @st.cache_data # Cache the output based on inputs
 def generate_schedule_from_components(class_components, classrooms, labs, working_days, start_time_obj, end_time_obj):
     """
@@ -56,9 +52,9 @@ def generate_schedule_from_components(class_components, classrooms, labs, workin
 
     if not class_components or not working_days:
         st.error("Cannot generate schedule: Missing class components or working days.")
-        return pd.DataFrame() # Return empty DataFrame on error/missing data
+        return pd.DataFrame() 
 
-    # Validate if rooms are available if needed
+    # Validate if rooms are available
     needs_theory_room = any(c['class_type'] == "Theory" for c in class_components)
     needs_lab_room_any = any(c['class_type'] == "Lab" and c.get('assigned_room') == "Any Available Lab" for c in class_components)
 
@@ -74,7 +70,7 @@ def generate_schedule_from_components(class_components, classrooms, labs, workin
     start_minutes_val = time_to_minutes(start_time_obj)
     end_minutes_val = time_to_minutes(end_time_obj)
 
-    # Prepare tasks to schedule: each session for each section of each component
+    # Prepare tasks to schedule
     tasks_to_schedule = []
     for comp in class_components:
         for section in comp['sections']:
@@ -86,54 +82,37 @@ def generate_schedule_from_components(class_components, classrooms, labs, workin
                     'section': section,
                     'class_type': comp['class_type'],
                     'duration_minutes': comp['duration_minutes'],
-                    'assigned_room': comp.get('assigned_room'), # Can be specific lab name or "Any Available Lab" or None (for theory)
-                    'task_id': f"{comp['id']}_{section}_{session_num}" # Unique ID for this specific task instance
+                    'assigned_room': comp.get('assigned_room'), 
+                    'task_id': f"{comp['id']}_{section}_{session_num}" 
                  })
 
-    # --- Start of Naive Placeholder Assignment Logic ---
-    # This is where a real solver would use optimization algorithms.
-    # The current logic assigns tasks in the order they appear in the tasks_to_schedule list.
-    # It tries to place a task on the first available working day, starting at the last assigned time + buffer.
-    # It does NOT check for conflicts (e.g., two classes in the same room or for the same section at the same time).
-
-    # Shuffle tasks to make the naive assignment slightly less predictable (still bad)
     random.shuffle(tasks_to_schedule)
 
     current_slot_time_per_day = {day: start_minutes_val for day in working_days}
-    day_index_counter = {day: 0 for day in working_days} # To cycle through rooms/days somewhat
+    day_index_counter = {day: 0 for day in working_days} 
 
     for task in tasks_to_schedule:
         assigned = False
-        # Naively try to place the task on the next working day in sequence
-        for _ in range(len(working_days)): # Try all days once per task
-             # Get the next day index using a counter for variation
+        for _ in range(len(working_days)): 
             day_idx = day_index_counter[working_days[0]] % len(working_days)
             current_day = working_days[day_idx]
-            day_index_counter[working_days[0]] += 1 # Increment counter for next task
+            day_index_counter[working_days[0]] += 1 
 
             slot_start = current_slot_time_per_day[current_day]
             slot_end = slot_start + task['duration_minutes']
 
-            # Check if it fits within the daily time frame
             if slot_end <= end_minutes_val:
-                # Determine room based on type and user input
                 room_to_use = None
                 if task['class_type'] == "Theory":
                     if classrooms:
-                        # Naively pick a classroom round-robin style (doesn't check availability)
-                        room_to_use = classrooms[day_index_counter[current_day] % len(classrooms)] # Use a per-day counter for rooms
-                    # else: Error should be caught before generate
+                        room_to_use = classrooms[day_index_counter[current_day] % len(classrooms)] 
                 elif task['class_type'] == "Lab":
                     if task['assigned_room'] and task['assigned_room'] != "Any Available Lab":
-                        room_to_use = task['assigned_room'] # Use specifically assigned lab
+                        room_to_use = task['assigned_room']
                     elif labs:
-                         # Naively pick a lab round-robin style if "Any Available Lab" (doesn't check availability)
-                        room_to_use = labs[day_index_counter[current_day] % len(labs)] # Use a per-day counter for labs
-                    # else: Error should be caught before generate
+                        room_to_use = labs[day_index_counter[current_day] % len(labs)]
 
                 if room_to_use:
-                     # In the placeholder, we *do not* check for conflicts (room, section, etc.) at slot_start.
-                     # A real solver would have complex constraint checking here.
 
                     schedule_entries.append({
                         'Day': current_day,
@@ -146,25 +125,19 @@ def generate_schedule_from_components(class_components, classrooms, labs, workin
                         'Component Title': task['component_title'],
                         'Room/Lab': room_to_use,
                         'Type': task['class_type'],
-                        'Component_ID': task['task_id'] # Keep a unique ID for sorting/debugging
+                        'Component_ID': task['task_id']
                     })
-                    # Move the start time for the next item scheduled on this specific day
-                    current_slot_time_per_day[current_day] = slot_end + 5 # Add 5 min buffer
+                    current_slot_time_per_day[current_day] = slot_end + 5
                     assigned = True
-                    break # Move to the next task in tasks_to_schedule
+                    break 
 
-            # If the task didn't fit in the current day's slot, the loop continues to try the next day...
-            # If it tries all days and doesn't fit within the remaining time window of any day, it won't be scheduled.
-            # Reset time for the day if it goes beyond end_time - simplistic overflow handling
+
             if slot_end > end_minutes_val:
-                 current_slot_time_per_day[current_day] = start_minutes_val # Reset day's start time for future tasks
+                 current_slot_time_per_day[current_day] = start_minutes_val 
 
         if not assigned:
-             # This task couldn't be placed within the time frame on any working day using this naive logic
-            st.warning(f"Could not place task: {task['component_title']} ({task['course_code']}) for Section {task['section']}. Consider adjusting time window or number of sessions.")
-            # In a real solver, this would mean no feasible solution or need for backtracking
 
-    # --- End of Naive Placeholder Assignment Logic ---
+            st.warning(f"Could not place task: {task['component_title']} ({task['course_code']}) for Section {task['section']}. Consider adjusting time window or number of sessions.")
 
 
     if not schedule_entries:
@@ -181,10 +154,6 @@ def generate_schedule_from_components(class_components, classrooms, labs, workin
 
     return schedule_df
 
-# --- End Placeholder Logic ---
-
-
-# --- Initialize Session State ---
 if 'semesters' not in st.session_state: st.session_state.semesters = []
 if 'sections' not in st.session_state: st.session_state.sections = {}
 if 'class_components' not in st.session_state: st.session_state.class_components = []
@@ -204,7 +173,6 @@ st.caption(f"Current Date: {datetime.datetime.now().strftime('%A, %B %d, %Y, %I:
 with st.sidebar:
     st.header("⚙️ General Configuration")
     all_days_ordered = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    # Use session state value if available, otherwise default
     default_sidebar_days = st.session_state.working_days_config if st.session_state.working_days_config else ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"]
     st.session_state.working_days_config = st.multiselect("Working Days", all_days_ordered, default=default_sidebar_days)
     st.session_state.start_time_config = st.time_input("University Start Time", value=st.session_state.start_time_config)
@@ -217,7 +185,7 @@ with st.sidebar:
             if new_classrooms_str:
                 added_count = 0
                 for r in [r.strip() for r in new_classrooms_str.split(',') if r.strip()]:
-                    if r and r not in st.session_state.classrooms: # Added check for non-empty string after strip
+                    if r and r not in st.session_state.classrooms: 
                         st.session_state.classrooms.append(r); added_count += 1
                 if added_count: st.success(f"Added {added_count} classroom(s).")
                 else: st.info("No new unique classrooms entered.")
@@ -232,16 +200,14 @@ with st.sidebar:
              if st.form_submit_button(f"Remove Selected Classroom"):
                 if room_to_remove != "Select...":
                     st.session_state.classrooms.remove(room_to_remove)
-                    # Note: Removing rooms here doesn't automatically update component assignments.
-                    # A real app might add validation or update logic.
                     st.success(f"Removed classroom: {room_to_remove}")
-                    st.session_state.schedule_df = None # Invalidate schedule
+                    st.session_state.schedule_df = None 
                     st.rerun()
                 else:
                     st.info("Select a classroom to remove.")
 
 
-    st.markdown("---") # Separator
+    st.markdown("---") 
 
     with st.form("add_lab_form_sidebar", clear_on_submit=True):
         new_labs_str = st.text_input("Add Lab Names (comma-separated)", placeholder="e.g., L501,L502")
@@ -249,7 +215,7 @@ with st.sidebar:
             if new_labs_str:
                 added_count = 0
                 for l_room in [l.strip() for l in new_labs_str.split(',') if l.strip()]:
-                    if l_room and l_room not in st.session_state.labs: # Added check for non-empty string after strip
+                    if l_room and l_room not in st.session_state.labs: 
                         st.session_state.labs.append(l_room); added_count += 1
                 if added_count: st.success(f"Added {added_count} lab(s).")
                 else: st.info("No new unique labs entered.")
@@ -336,7 +302,6 @@ with tab1:
     with col2_sec:
         if st.session_state.semesters:
             with st.form("add_section_form_tab1", clear_on_submit=True):
-                # Use a key dependent on the semesters list to ensure uniqueness when semesters change
                 sel_sem_for_sec = st.selectbox("Select Semester*", st.session_state.semesters, key=f"add_sec_sel_sem_{'_'.join(st.session_state.semesters)}")
                 new_sec_name = st.text_input(f"Add Section(s) to {sel_sem_for_sec} (comma-separated)*", placeholder="e.g., A, B1", key=f"new_sec_input_{sel_sem_for_sec}")
                 if st.form_submit_button("Add Section"):
@@ -361,7 +326,6 @@ with tab1:
 
         st.subheader("Manage Sections")
         if any(st.session_state.sections.values()):
-             # Use a key dependent on the sections structure to ensure uniqueness
              sections_structure_key = "_".join([f"{s}:{','.join(secs)}" for s, secs in st.session_state.sections.items()])
              sem_for_sec_remove = st.selectbox("Select Semester to manage sections", ["Select..."] + st.session_state.semesters, key=f"manage_sec_sel_sem_{sections_structure_key}")
 
@@ -380,23 +344,18 @@ with tab1:
                                       st.session_state.sections[sem_for_sec_remove].remove(sec_to_remove)
                                       removed_count += 1
 
-                              # Process components: remove the section from their list, remove component if list becomes empty
                               initial_comp_count = len(st.session_state.class_components)
                               processed_components = []
                               for comp in st.session_state.class_components:
-                                   # Check if component belongs to the semester where sections were removed
                                    if comp['semester'] == sem_for_sec_remove:
-                                       # Remove the selected sections from this component's sections list
                                        updated_sections = [sec for sec in comp['sections'] if sec not in secs_to_remove]
                                        if updated_sections:
                                            comp['sections'] = updated_sections
                                            processed_components.append(comp)
                                        else:
-                                            # Component sections list became empty after removal
                                             st.warning(f"Removed component '{comp['component_title']}' ({comp['course_code']}) as all its assigned sections ({comp['sections']}) from {sem_for_sec_remove} were removed.")
                                             removed_comp_count += 1 # Count components removed this way
                                    else:
-                                       # Component belongs to a different semester, keep it as is
                                        processed_components.append(comp)
 
                               st.session_state.class_components = processed_components
